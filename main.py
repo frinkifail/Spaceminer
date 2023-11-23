@@ -1,48 +1,98 @@
+from asyncio import sleep
+from subprocess import check_output
 from time import time
 import flet as ft
-from client_utils import new_snackbar, request, username_tf, password_tf
-from shared import SaveData, Upgrades, User, hash_password
+from client_utils import new_snackbar, request, username_tf, password_tf, logged_in_user
+from shared import User, hash_password, DEFAULT_SAVE
+from requests.exceptions import JSONDecodeError
 
 
 async def app(page: ft.Page):
-    page.title = "CommandIncremental V2"
+    page.title = "Spaceminer"
+    current_commit_version = (
+        check_output(["git", "describe", "--always"]).strip().decode()
+    )
 
     async def route_change(route: ft.RouteChangeEvent):
         page.views.clear()
 
-        async def login(_):
-            resp = request("load", username=username_tf.value)
-            await page.show_snack_bar_async(
-                new_snackbar(
-                    f'Login successful.{f" Text: {resp.text}. Status: {resp.status_code}" if resp else ""}'
-                )
-            )
+        if route.route == "/":
 
-        async def to_signup(_):
-            await page.go_async("/signup")
+            async def _(_):
+                await page.go_async("/login")
 
-        page.views.append(
-            ft.View(
-                "/",
-                [
-                    username_tf,
-                    password_tf,
-                    ft.Row(
-                        [ft.FilledTonalButton("Login", expand=True, on_click=login)],
-                    ),
-                ],
-                ft.AppBar(
-                    title=ft.Text("Login"),
-                    center_title=True,
-                    actions=[
-                        ft.IconButton(
-                            ft.icons.PERSON_ADD, tooltip="Signup", on_click=to_signup
+            page.views.append(
+                ft.View(
+                    "/",
+                    [
+                        ft.Row(
+                            [
+                                ft.Image(
+                                    "Spaceminer.png",
+                                    width=512,
+                                    height=512,
+                                    border_radius=ft.border_radius.all(2000),
+                                ),
+                                ft.Text(
+                                    "Spaceminer", style=ft.TextThemeStyle.DISPLAY_SMALL
+                                ),
+                                ft.FilledTonalButton("Play", on_click=_),
+                            ],
+                            alignment=ft.MainAxisAlignment.CENTER,
+                            expand=True,
                         )
                     ],
-                ),
+                )
             )
-        )
-        if route.route == "/signup":
+        elif route.route == "/login":
+
+            async def login(_):
+                resp = request("load", username=username_tf.value)
+                if resp is not None:
+                    try:
+                        logged_in_user.set(resp.json())
+                    except JSONDecodeError:
+                        await page.show_snack_bar_async(
+                            new_snackbar("Couldn't login properly.")
+                        )
+                    await page.show_snack_bar_async(new_snackbar(f"Login successful."))
+                    await page.go_async("/game")
+                else:
+                    await page.show_snack_bar_async(
+                        new_snackbar("Couldn't login properly.")
+                    )
+
+            async def to_signup(_):
+                await page.go_async("/signup")
+
+            page.views.append(
+                ft.View(
+                    "/login",
+                    [
+                        username_tf,
+                        password_tf,
+                        ft.Row(
+                            [
+                                ft.FilledTonalButton(
+                                    "Login", expand=True, on_click=login
+                                )
+                            ],
+                        ),
+                    ],
+                    ft.AppBar(
+                        title=ft.Text("Login"),
+                        center_title=True,
+                        actions=[
+                            ft.IconButton(
+                                ft.icons.PERSON_ADD,
+                                tooltip="Signup",
+                                on_click=to_signup,
+                            )
+                        ],
+                    ),
+                )
+            )
+        elif route.route == "/signup":
 
             async def signup(_):
                 request(
@@ -51,11 +101,7 @@ async def app(page: ft.Page):
                         name=username_tf.value if username_tf.value else "<unknown>",
                         password=hash_password(password_tf.value),
                         created=time(),
-                        data=SaveData(
-                            silicon=0,
-                            money=0,
-                            upgrades=Upgrades(max_silicon=100, max_money=100),
-                        ),
+                        data=DEFAULT_SAVE,
                     ),
                 )
                 await page.go_async("/")
@@ -81,18 +127,26 @@ async def app(page: ft.Page):
                     ft.AppBar(title=ft.Text("Signup"), center_title=True),
                 )
             )
-        # if page.route == "/store":
-        #     page.views.append(
-        #         ft.View(
-        #             "/store",
-        #             [
-        #                 ft.AppBar(
-        #                     title=ft.Text("Store"), bgcolor=ft.colors.SURFACE_VARIANT
-        #                 ),
-        #                 ft.ElevatedButton("Go Home", on_click=lambda _: page.go("/")),
-        #             ],
-        #         )
-        #     )
+
+        elif route.route == "/game":
+            page.views.clear()
+            usr = logged_in_user.get()
+            if usr == None:
+                await page.show_snack_bar_async(new_snackbar("failed to load user"))
+                await sleep(2)
+                await page.go_async("/")
+                return
+            plr = usr["data"]
+            page.views.append(
+                ft.View(
+                    "/game",
+                    [],
+                    ft.AppBar(
+                        title=ft.Text(f"Spaceminer v{current_commit_version}"),
+                        center_title=True,
+                    ),
+                )
+            )
         await page.update_async()
 
     async def view_pop(view: ft.ViewPopEvent):
@@ -106,4 +160,4 @@ async def app(page: ft.Page):
 
 
 if __name__ == "__main__":
-    ft.app(app, "CI V2", None, 7993)
+    ft.app(app, "CI V2", None, 7993, assets_dir="assets")
